@@ -7,7 +7,8 @@ from werkzeug.utils import secure_filename
 
 
 app = Flask(__name__)
-CORS(app, origins=["https://localhost:5173"])
+# CORS(app, origins=["https://localhost:5173"])
+CORS(app)
 
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'xlsx', 'xls'}
@@ -20,7 +21,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS #1.checks if there is a dot, 2. splits once from the right and checks whether the second elementin the returned array(index 1) is among the allowed extension
 
-def load_excel_data(filepath):
+def load_excel_data(filepath): #this fn takes a filepath and attempts to load the excel data into a pandas dataframe
     try:
         df = pd.read_excel(filepath)
         return df
@@ -28,8 +29,8 @@ def load_excel_data(filepath):
         raise Exception(f"Error reading excel file: {str(e)}")
 
 
-def parse_data(date_value):
-    if pd.isna(date_value):
+def parse_data(date_value): #fn converts date-like inputs into a pandas timestamp object
+    if pd.isna(date_value): #checks if value is NaN or missing
         return None
 
     if isinstance(date_value, (pd.Timestamp, datetime)):
@@ -108,9 +109,13 @@ def filter_serials_in_range(df, start_serial, end_serial, start_date=None, end_d
         total_in_range = len(serials_in_range)
         activated_count = len(activated_serials)
 
-        columns_to_return = [serial_column, msisdn_column]
-        if date_column:
-            columns_to_return.append[date_column]
+        columns_to_return = []
+        if serial_column and serial_column in activated_serials.columns:
+            columns_to_return.append(serial_column)
+        if msisdn_column and msisdn_column in activated_serials.columns:
+            columns_to_return.append(msisdn_column)
+        if date_column and date_column in activated_serials.columns:
+            columns_to_return.append(date_column)
 
         activated_list = activated_serials[columns_to_return].head(100).to_dict('records')
 
@@ -184,13 +189,13 @@ def filter_by_retailer(df, retailer_msisdn, start_date=None, end_date=None):
         activated_count = len(activated_serials)
 
         columns_to_return = []
-        if serial_column:
+        if serial_column and serial_column in activated_serials.columns:
             columns_to_return.append(serial_column)
-        if msisdn_column:
+        if msisdn_column and msisdn_column in activated_serials.columns:
             columns_to_return.append(msisdn_column)
-        if retailer_column:
-            columns_to_return.append(retailer_column)
-        if date_column:
+        if retailer_msisdn and retailer_msisdn in activated_serials.columns:
+            columns_to_return.append(retailer_msisdn)
+        if date_column and date_column in activated_serials.columns:
             columns_to_return.append(date_column)
 
         activated_list = activated_serials[columns_to_return].head(100).to_dict('records')
@@ -217,6 +222,107 @@ def filter_by_retailer(df, retailer_msisdn, start_date=None, end_date=None):
         return {"error": str(e)}
 
 
+@app.route('/api/upload', methods=['POST'])
+def upload_file():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files['file']
+
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'current_data.xlsx')
+        file.save(filepath)
+
+        try:
+            df = load_excel_data(filepath)
+            return jsonify({
+                "message": "File uploaded successfully",
+                "rows": len(df),
+                "columns": list(df.columns)
+            }), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    return jsonify({"error": "Invalid data file"})
+
+@app.route('/api/filter', methods=['POST'])
+def filter_serials():
+    data = request.get_json()
+
+    if not data or 'start_serial' not in data or 'end_serial' not in data:
+        return jsonify({"error": "start_serial and end_serial are required"}), 400
+
+    start_serial = data['start_serial']
+    end_serial = data['end_serial']
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'current_data.xlsx')
+    if not os.path.exists(filepath):
+        return jsonify({"error": "No excel file uploaded"}), 400
+
+    try:
+        df = load_excel_data(filepath)
+        result = filter_serials_in_range(df, start_serial, end_serial, start_date, end_date)
+
+        if "error" in result:
+            return jsonify(result), 200
+        return jsonify(result), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/filter-retailer', methods=['POST'])
+def filter_by_retailer_route():
+    data = request.get_json()
+
+    if not data or 'retailer_msisdn' not in data:
+        return jsonify({"error": "retailer_msisdn is required"}), 400
+
+    retailer_msisdn = data['retailer_msisdn']
+    start_date = data.get('start_date')
+    end_date = data.get('end_date')
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'current_data.xlsx')
+    if not os.path.exists(filepath):
+        return jsonify({"error": "No excel file uploaded"}), 400
+
+    try:
+        df = load_excel_data(filepath)
+        result = filter_by_retailer(df, retailer_msisdn, start_date, end_date)
+
+        if "error" in result:
+            return jsonify(result), 200
+
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], 'current_data.xlsx')
+
+    if os.path.exists(filepath):
+        try:
+            df = load_excel_data(filepath)
+            return jsonify({
+                "loaded": True,
+                "rows": len(df),
+                "last_modified": os.path.getmtime(filepath)
+            }), 200
+        except Exception as e:
+            return jsonify({"loaded": False}), 200
+
+    return jsonify({"loaded": False}), 200
+
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+
+
 
