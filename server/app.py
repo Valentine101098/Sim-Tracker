@@ -29,7 +29,7 @@ def load_excel_data(filepath): #this fn takes a filepath and attempts to load th
         raise Exception(f"Error reading excel file: {str(e)}")
 
 
-def parse_data(date_value): #fn converts date-like inputs into a pandas timestamp object
+def parse_date(date_value): #fn converts date-like inputs into a pandas timestamp object
     if pd.isna(date_value): #checks if value is NaN or missing
         return None
 
@@ -45,9 +45,10 @@ def filter_by_date_range(df, date_column, start_date, end_date):
     if not start_date and not end_date:
         return df
 
-    df[date_column] = df[date_column].apply(parse_data)
+    df = df.copy()
+    df[date_column] = df[date_column].apply(parse_date)
 
-    mask = pd.Series([True] * len(df))
+    mask = pd.Series([True] * len(df), index=df.index)
 
     if start_date:
         try:
@@ -95,11 +96,13 @@ def filter_serials_in_range(df, start_serial, end_serial, start_date=None, end_d
             if 'Activation_time' in col_lower:
                 date_column = col
                 break
+        df = df.copy()
 
-        df[serial_column] = pd.to_numeric(df[serial_column], errors='coerce') #convert serial numbers to numeric, handling any non-numeric value
+        df['numeric_serial'] = df[serial_column].astype(str).str.replace('SERIAL_', '', regex=False).str.replace('serial_', '', case=False, regex=False) #remove the SERIAL_ prefix
+        df['numeric_serial'] = pd.to_numeric(df['numeric_serial'], errors='coerce')#convert serial numbers to numeric, handling any non-numeric value
 
-        mask = (df[serial_column] >= start) & (df[serial_column] <= end)
-        serials_in_range = mask[df] #filter serials in range
+        mask = (df['numeric_serial'] >= start) & (df['numeric_serial'] <= end)
+        serials_in_range = df[mask] #filter serials in range
 
         if date_column and (start_date or end_date):
             serials_in_range = filter_by_date_range(serials_in_range, date_column, start_date, end_date) #apply date filter if date column exists and date ranges are provided
@@ -117,7 +120,13 @@ def filter_serials_in_range(df, start_serial, end_serial, start_date=None, end_d
         if date_column and date_column in activated_serials.columns:
             columns_to_return.append(date_column)
 
-        activated_list = activated_serials[columns_to_return].head(100).to_dict('records')
+        if not columns_to_return:
+            columns_to_return = [col for col in activated_serials.column if col != 'numeric_serial']
+
+        activated_list = []
+        if len(activated_serials) > 0:
+            return_cols = [col for col in columns_to_return if col != 'numeric_serial']
+            activated_list = activated_serials[return_cols].head(100).to_dict('records')
 
         for item in activated_list:
             if date_column and date_column in item:
@@ -131,13 +140,15 @@ def filter_serials_in_range(df, start_serial, end_serial, start_date=None, end_d
         return {
             "total_in_range": total_in_range,
             "activated_count": activated_count,
-            "activation_rate": ((activated_count / total_in_range * 100), 2) if total_in_range > 0 else 0,
+            "activation_rate": round((activated_count / total_in_range * 100), 2) if total_in_range > 0 else 0,
             "activated_serials": activated_list,
             "has_date_column": date_column is not None,
             "date_column_name": date_column
         }
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {"error": str(e)}
 
 
@@ -170,10 +181,11 @@ def filter_by_retailer(df, retailer_msisdn, start_date=None, end_date=None):
         date_column = None
         for col in df.columns:
             col_lower = col.lower()
-            if 'Activation_time' in col_lower:
+            if 'activation_time' in col_lower:
                 date_column = col
                 break
 
+        df = df.copy()
         retailer_mask = df[retailer_column].astype(str).str.contains(str(retailer_msisdn), na=False)
         retailer_serials = df[retailer_mask]
 
@@ -181,7 +193,7 @@ def filter_by_retailer(df, retailer_msisdn, start_date=None, end_date=None):
             retailer_serials = filter_by_date_range(retailer_serials, date_column, start_date, end_date)
 
         if msisdn_column:
-            activated_serials = [retailer_serials[msisdn_column].notna() & (retailer_serials[msisdn_column] != '')]
+            activated_serials = retailer_serials[retailer_serials[msisdn_column].notna() & (retailer_serials[msisdn_column] != '')]
         else:
             activated_serials = retailer_serials
 
@@ -194,11 +206,17 @@ def filter_by_retailer(df, retailer_msisdn, start_date=None, end_date=None):
         if msisdn_column and msisdn_column in activated_serials.columns:
             columns_to_return.append(msisdn_column)
         if retailer_msisdn and retailer_msisdn in activated_serials.columns:
-            columns_to_return.append(retailer_msisdn)
+            columns_to_return.append(retailer_column)
         if date_column and date_column in activated_serials.columns:
             columns_to_return.append(date_column)
 
-        activated_list = activated_serials[columns_to_return].head(100).to_dict('records')
+        if not columns_to_return:
+            columns_to_return = activated_serials.columns.tolist()
+
+
+        activated_list = []
+        if len(activated_serials) > 0:
+            activated_list = activated_serials[columns_to_return].head(100).to_dict('records')
 
         for item in activated_list:
             if date_column and date_column in item:
@@ -219,7 +237,9 @@ def filter_by_retailer(df, retailer_msisdn, start_date=None, end_date=None):
         }
 
     except Exception as e:
-        return {"error": str(e)}
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}, 500
 
 
 @app.route('/api/upload', methods=['POST'])
@@ -247,7 +267,7 @@ def upload_file():
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
-    return jsonify({"error": "Invalid data file"})
+    return jsonify({"error": "Invalid data file"}), 400
 
 @app.route('/api/filter', methods=['POST'])
 def filter_serials():
