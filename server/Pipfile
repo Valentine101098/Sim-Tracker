@@ -4,14 +4,15 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-flask = "*"
-flask-cors = "*"
-pandas = "*"
-openpyxl = "*"
-werkzeug = "*"
-gunicorn = "*"
+flask = "==3.0.3"
+flask-cors = "==5.0.0"
+pandas = "==2.2.3"
+openpyxl = "==3.1.5"
+werkzeug = "==3.0.6"
+gunicorn = "==23.0.0"
+numpy = "==1.26.4"
 
 [dev-packages]
 
 [requires]
-python_version = "3.8"
+python_version = "3.11"
