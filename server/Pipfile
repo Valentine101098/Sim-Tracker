@@ -8,6 +8,8 @@ flask = "*"
 flask-cors = "*"
 pandas = "*"
 openpyxl = "*"
+werkzeug = "*"
+gunicorn = "*"
 
 [dev-packages]
 
