@@ -241,6 +241,13 @@ def filter_by_retailer(df, retailer_msisdn, start_date=None, end_date=None):
         traceback.print_exc()
         return {"error": str(e)}, 500
 
+@app.route('/')
+def index():
+    return jsonify({
+        'message': 'Welcome to Your Flask API',
+        'health_check': '/health',
+        'api_base': '/api'
+    })
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
