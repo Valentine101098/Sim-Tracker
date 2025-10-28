@@ -17,7 +17,7 @@ function App() {
   const [uploadLoading, setUploadLoading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  const API_URL = 'https://sim-tracker.onrender.com' || 'http://localhost:5000/api';
+  const API_URL = 'https://sim-tracker.onrender.com/api' || 'http://localhost:5000/api';
 
   useEffect(() => {
     checkStatus();
