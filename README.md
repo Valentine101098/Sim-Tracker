@@ -168,7 +168,7 @@ Both communicate through Render’s internal networking for seamless integration
 **Valentine Wanjiru**
 Software Engineer | Full Stack Developer
 
-📧 [portfolio link]
+https://valentine-portfolio.onrender.com/
 
 ---
 
